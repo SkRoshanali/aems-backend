@@ -19,8 +19,16 @@ WORKDIR /app
 # Copy the built jar from build stage
 COPY --from=build /app/target/*.jar app.jar
 
-# Expose port
+# Cloud Run requires listening on $PORT (default 8080)
 EXPOSE 8080
 
-# Run the application
-ENTRYPOINT ["java", "-XX:TieredStopAtLevel=1", "-Xms128m", "-Xmx512m", "-jar", "app.jar"]
+# Optimized JVM flags for Cloud Run:
+# - UseContainerSupport: respect container memory limits
+# - MaxRAMPercentage: use up to 75% of container RAM
+# - TieredStopAtLevel=4: full JIT for better throughput (Cloud Run keeps containers warm)
+ENTRYPOINT ["java", \
+  "-XX:+UseContainerSupport", \
+  "-XX:MaxRAMPercentage=75.0", \
+  "-XX:+UseG1GC", \
+  "-Djava.security.egd=file:/dev/./urandom", \
+  "-jar", "app.jar"]
