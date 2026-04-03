@@ -48,8 +48,8 @@ public class GlobalExceptionHandler {
     
     @ExceptionHandler(RuntimeException.class)
     public ResponseEntity<Map<String, Object>> handleRuntimeException(RuntimeException ex) {
-        System.out.println("=== RUNTIME EXCEPTION OCCURRED ===");
-        System.out.println("Exception message: " + ex.getMessage());
+        System.err.println("=== RUNTIME EXCEPTION OCCURRED ===");
+        System.err.println("Exception message: " + ex.getMessage());
         ex.printStackTrace();
         
         Map<String, Object> response = new HashMap<>();
@@ -62,6 +62,9 @@ public class GlobalExceptionHandler {
     
     @ExceptionHandler(Exception.class)
     public ResponseEntity<Map<String, Object>> handleGlobalException(Exception ex) {
+        System.err.println("=== GLOBAL EXCEPTION CAUGHT ===");
+        ex.printStackTrace();
+        
         Map<String, Object> response = new HashMap<>();
         response.put("timestamp", LocalDateTime.now());
         response.put("status", HttpStatus.INTERNAL_SERVER_ERROR.value());
