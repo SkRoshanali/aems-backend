@@ -14,6 +14,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
+import java.time.ZoneId;
 
 @Service
 public class AuthService {
@@ -77,6 +78,9 @@ public class AuthService {
             user.setSessionExpires(sessionExpires);
             userRepository.save(user);
             
+            // Convert to epoch milliseconds for frontend
+            long sessionExpiresMillis = sessionExpires.atZone(ZoneId.systemDefault()).toInstant().toEpochMilli();
+            
             return new AuthResponse(
                     accessToken,
                     refreshToken,
@@ -84,7 +88,7 @@ public class AuthService {
                     user.getEmail(),
                     user.getFullName(),
                     user.getRole().name(),
-                    sessionExpires.toString()
+                    String.valueOf(sessionExpiresMillis)
             );
             
         } catch (Exception e) {
@@ -122,6 +126,9 @@ public class AuthService {
         user.setSessionExpires(sessionExpires);
         userRepository.save(user);
         
+        // Convert to epoch milliseconds for frontend
+        long sessionExpiresMillis = sessionExpires.atZone(ZoneId.systemDefault()).toInstant().toEpochMilli();
+        
         return new AuthResponse(
                 newAccessToken,
                 newRefreshToken,
@@ -129,7 +136,7 @@ public class AuthService {
                 user.getEmail(),
                 user.getFullName(),
                 user.getRole().name(),
-                sessionExpires.toString()
+                String.valueOf(sessionExpiresMillis)
         );
     }
 }
