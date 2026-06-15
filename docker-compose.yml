@@ -1,0 +1,93 @@
+version: '3.8'
+
+services:
+  # PostgreSQL with pgvector extension
+  postgres:
+    image: pgvector/pgvector:pg16
+    container_name: aems-postgres
+    environment:
+      POSTGRES_DB: aems_db
+      POSTGRES_USER: aems_user
+      POSTGRES_PASSWORD: aems_pass
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./init-db.sql:/docker-entrypoint-initdb.d/init-db.sql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U aems_user -d aems_db"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - aems-network
+  
+  # Python FastAPI RAG Service
+  rag-service:
+    build:
+      context: ./aems-rag-service
+      dockerfile: Dockerfile
+    container_name: aems-rag-service
+    ports:
+      - "8000:8000"
+    environment:
+      DATABASE_URL: postgresql://aems_user:aems_pass@postgres:5432/aems_db
+      OPENAI_API_KEY: ${OPENAI_API_KEY}
+      OPENAI_EMBEDDING_MODEL: text-embedding-3-small
+      OPENAI_CHAT_MODEL: gpt-4-turbo-preview
+      JWT_SECRET: ${JWT_SECRET}
+      JWT_ALGORITHM: HS256
+      CHUNK_SIZE: 500
+      CHUNK_OVERLAP: 50
+      SEARCH_TOP_K: 5
+      HOST: 0.0.0.0
+      PORT: 8000
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    networks:
+      - aems-network
+  
+  # Spring Boot Backend
+  spring-backend:
+    build:
+      context: ./aems-backend
+      dockerfile: Dockerfile
+    container_name: aems-spring-backend
+    ports:
+      - "8080:8080"
+    environment:
+      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/aems_db
+      SPRING_DATASOURCE_USERNAME: aems_user
+      SPRING_DATASOURCE_PASSWORD: aems_pass
+      JWT_SECRET: ${JWT_SECRET}
+      ENCRYPTION_KEY: ${ENCRYPTION_KEY}
+      RAG_SERVICE_URL: http://rag-service:8000
+      MAIL_USERNAME: ${MAIL_USERNAME}
+      MAIL_PASSWORD: ${MAIL_PASSWORD}
+      ALLOWED_ORIGINS: ${ALLOWED_ORIGINS:-*}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      rag-service:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/actuator/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    networks:
+      - aems-network
+
+volumes:
+  postgres_data:
+    driver: local
+
+networks:
+  aems-network:
+    driver: bridge
