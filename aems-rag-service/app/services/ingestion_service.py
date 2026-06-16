@@ -3,7 +3,7 @@ Document Ingestion Service
 Handles embedding generation and storage for business events
 """
 from typing import List, Dict, Optional
-from langchain_openai import OpenAIEmbeddings
+from langchain_google_genai import GoogleGenerativeAIEmbeddings
 from langchain.text_splitter import RecursiveCharacterTextSplitter
 from langchain_community.vectorstores import PGVector
 from sqlalchemy import create_engine, text
@@ -17,9 +17,9 @@ logger = logging.getLogger(__name__)
 class IngestionService:
     
     def __init__(self):
-        self.embeddings = OpenAIEmbeddings(
-            model=settings.OPENAI_EMBEDDING_MODEL,
-            openai_api_key=settings.OPENAI_API_KEY
+        self.embeddings = GoogleGenerativeAIEmbeddings(
+            model=settings.GOOGLE_EMBEDDING_MODEL,
+            google_api_key=settings.GOOGLE_API_KEY
         )
         
         self.text_splitter = RecursiveCharacterTextSplitter(

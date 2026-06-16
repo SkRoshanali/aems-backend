@@ -14,10 +14,10 @@ class Settings(BaseSettings):
     # Database Configuration
     DATABASE_URL: str
     
-    # OpenAI Configuration
-    OPENAI_API_KEY: str
-    OPENAI_EMBEDDING_MODEL: str = "text-embedding-3-small"
-    OPENAI_CHAT_MODEL: str = "gpt-4-turbo-preview"
+    # Google Generative AI Configuration
+    GOOGLE_API_KEY: str
+    GOOGLE_EMBEDDING_MODEL: str = "models/embedding-001"
+    GOOGLE_CHAT_MODEL: str = "gemini-pro"
     
     # JWT Configuration (must match Spring Boot)
     JWT_SECRET: str

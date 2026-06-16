@@ -17,12 +17,8 @@ pgvector==0.2.4
 
 # LangChain & AI
 langchain==0.1.4
-langchain-openai==0.0.5
+langchain-google-genai==0.0.8
 langchain-community==0.0.16
-
-# OpenAI
-openai==1.10.0
-tiktoken==0.5.2
 
 # HTTP Client
 httpx==0.26.0

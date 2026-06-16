@@ -1,7 +1,7 @@
 """
 RAG Query Service with Role-Based Filtering
 """
-from langchain_openai import OpenAIEmbeddings, ChatOpenAI
+from langchain_google_genai import GoogleGenerativeAIEmbeddings, ChatGoogleGenerativeAI
 from langchain_community.vectorstores import PGVector
 from langchain.chains import RetrievalQA
 from langchain.prompts import PromptTemplate
@@ -16,15 +16,16 @@ logger = logging.getLogger(__name__)
 class RAGService:
     
     def __init__(self):
-        self.embeddings = OpenAIEmbeddings(
-            model=settings.OPENAI_EMBEDDING_MODEL,
-            openai_api_key=settings.OPENAI_API_KEY
+        self.embeddings = GoogleGenerativeAIEmbeddings(
+            model=settings.GOOGLE_EMBEDDING_MODEL,
+            google_api_key=settings.GOOGLE_API_KEY
         )
         
-        self.llm = ChatOpenAI(
-            model=settings.OPENAI_CHAT_MODEL,
+        self.llm = ChatGoogleGenerativeAI(
+            model=settings.GOOGLE_CHAT_MODEL,
             temperature=0.7,
-            openai_api_key=settings.OPENAI_API_KEY
+            google_api_key=settings.GOOGLE_API_KEY,
+            convert_system_message_to_human=True # Required for some gemini models if system prompts act up
         )
         
         self.vector_store = PGVector(
