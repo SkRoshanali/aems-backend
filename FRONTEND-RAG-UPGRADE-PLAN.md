@@ -186,7 +186,7 @@ src/
 │   └── chat/                    ← NEW FOLDER
 │       ├── ChatWidget.jsx       ← Floating button
 │       ├── ChatPanel.jsx        ← Main chat UI
-│       ├── ChatMessage.jsx      ← Message bubbles
+│       ├── ChatMessage.jsx      ← Message bubbles (supports user/ai/system/error)
 │       ├── ChatSuggestions.jsx  ← Quick prompts
 │       └── ChatLoading.jsx      ← Loading animation
 │
@@ -255,7 +255,7 @@ import ChatSuggestions from './ChatSuggestions';
 function ChatPanel({ onClose }) {
   const [input, setInput] = useState('');
   const dispatch = useDispatch();
-  const { messages, isLoading, userRole } = useSelector((state) => state.chat);
+  const { messages, isLoading, isWakingUp, userRole } = useSelector((state) => state.chat);
   const messagesEndRef = useRef(null);
 
   const scrollToBottom = () => {
@@ -267,9 +267,10 @@ function ChatPanel({ onClose }) {
   }, [messages]);
 
   const handleSend = () => {
-    if (!input.trim() || isLoading) return;
+    if (!input.trim() || isLoading) return;  // FIXED: Only block on isLoading
     
-    dispatch(sendMessage({ query: input, role: userRole }));
+    // Only send query - Spring Boot extracts role from JWT
+    dispatch(sendMessage({ query: input }));
     setInput('');
   };
 
@@ -295,6 +296,22 @@ function ChatPanel({ onClose }) {
         </button>
       </div>
 
+      {/* Wake-up Banner (Informational - Does NOT block input) */}
+      {isWakingUp && (
+        <div className="bg-yellow-50 border-b border-yellow-200 p-3">
+          <div className="flex items-start gap-2">
+            <div className="animate-spin h-4 w-4 border-2 border-yellow-500 border-t-transparent 
+                            rounded-full mt-0.5" />
+            <div>
+              <p className="text-sm font-medium text-yellow-800">Waking up services...</p>
+              <p className="text-xs text-yellow-700 mt-1">
+                Render free tier is starting up (~30 seconds). You can still retry!
+              </p>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Messages */}
       <div className="flex-1 overflow-y-auto p-4 space-y-4 bg-gray-50">
         {messages.length === 0 ? (
@@ -307,7 +324,7 @@ function ChatPanel({ onClose }) {
         <div ref={messagesEndRef} />
       </div>
 
-      {/* Input */}
+      {/* Input - FIXED: Only disabled by isLoading, NOT isWakingUp */}
       <div className="p-4 border-t bg-white rounded-b-lg">
         <div className="flex gap-2">
           <input
@@ -317,7 +334,7 @@ function ChatPanel({ onClose }) {
             onKeyPress={handleKeyPress}
             placeholder="Ask me anything..."
             className="flex-1 px-4 py-2 border rounded-lg focus:outline-none focus:ring-2 
-                       focus:ring-blue-500"
+                       focus:ring-blue-500 disabled:bg-gray-100 disabled:cursor-not-allowed"
             disabled={isLoading}
           />
           <button
@@ -344,24 +361,236 @@ export default ChatPanel;
 
 ---
 
-### **3. chatService.js (API Integration)**
+### **3. ChatMessage.jsx (Message Display Component)**
+
+```jsx
+import { Copy, CheckCircle, AlertCircle, Info } from 'lucide-react';
+import { useState } from 'react';
+
+function ChatMessage({ message }) {
+  const [copied, setCopied] = useState(false);
+
+  const handleCopy = () => {
+    navigator.clipboard.writeText(message.content);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+  };
+
+  // Format timestamp
+  const formatTime = (timestamp) => {
+    const date = new Date(timestamp);
+    return date.toLocaleTimeString('en-US', { 
+      hour: '2-digit', 
+      minute: '2-digit' 
+    });
+  };
+
+  // System message (yellow banner - for wake-up notifications)
+  if (message.type === 'system') {
+    return (
+      <div className="bg-yellow-50 border-l-4 border-yellow-400 p-3 rounded">
+        <div className="flex items-start gap-2">
+          <Info size={18} className="text-yellow-600 mt-0.5 flex-shrink-0" />
+          <div>
+            <p className="text-sm text-yellow-800">{message.content}</p>
+            <span className="text-xs text-yellow-600 mt-1 block">
+              {formatTime(message.timestamp)}
+            </span>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // Error message (red banner)
+  if (message.type === 'error') {
+    return (
+      <div className="bg-red-50 border-l-4 border-red-400 p-3 rounded">
+        <div className="flex items-start gap-2">
+          <AlertCircle size={18} className="text-red-600 mt-0.5 flex-shrink-0" />
+          <div>
+            <p className="text-sm text-red-800">{message.content}</p>
+            <span className="text-xs text-red-600 mt-1 block">
+              {formatTime(message.timestamp)}
+            </span>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // User message (right-aligned, blue)
+  if (message.type === 'user') {
+    return (
+      <div className="flex justify-end">
+        <div className="max-w-[75%]">
+          <div className="bg-blue-500 text-white px-4 py-2 rounded-lg rounded-br-sm">
+            <p className="text-sm">{message.content}</p>
+          </div>
+          <span className="text-xs text-gray-500 mt-1 block text-right">
+            {formatTime(message.timestamp)}
+          </span>
+        </div>
+      </div>
+    );
+  }
+
+  // AI message (left-aligned, gray, with copy button)
+  if (message.type === 'ai') {
+    return (
+      <div className="flex justify-start">
+        <div className="max-w-[75%]">
+          <div className="bg-gray-200 text-gray-800 px-4 py-2 rounded-lg rounded-bl-sm">
+            <p className="text-sm whitespace-pre-wrap">{message.content}</p>
+            
+            {/* Sources (if available) */}
+            {message.sources && message.sources.length > 0 && (
+              <div className="mt-2 pt-2 border-t border-gray-300">
+                <p className="text-xs text-gray-600 font-semibold mb-1">Sources:</p>
+                <ul className="text-xs text-gray-600 space-y-0.5">
+                  {message.sources.slice(0, 3).map((source, idx) => (
+                    <li key={idx} className="truncate">
+                      • {source.metadata?.document_type || 'Document'} 
+                      {source.metadata?.entity_id && ` (${source.metadata.entity_id})`}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+          </div>
+          
+          <div className="flex items-center justify-between mt-1">
+            <span className="text-xs text-gray-500">
+              {formatTime(message.timestamp)}
+            </span>
+            <button
+              onClick={handleCopy}
+              className="text-gray-500 hover:text-gray-700 p-1 rounded hover:bg-gray-100 
+                         transition-colors"
+              title="Copy message"
+            >
+              {copied ? (
+                <CheckCircle size={14} className="text-green-500" />
+              ) : (
+                <Copy size={14} />
+              )}
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // Fallback for unknown message types
+  return (
+    <div className="bg-gray-100 p-3 rounded text-sm text-gray-600">
+      Unknown message type: {message.type}
+    </div>
+  );
+}
+
+export default ChatMessage;
+```
+
+---
+
+### **4. ChatSuggestions.jsx (Quick Prompt Buttons)**
+
+```jsx
+import { MessageSquare } from 'lucide-react';
+
+function ChatSuggestions({ role, onSelect }) {
+  // Role-specific suggestions
+  const suggestions = {
+    BUYER: [
+      "What products are available?",
+      "Show me my recent orders",
+      "How do I place an order?",
+      "What are your payment terms?"
+    ],
+    EMPLOYEE: [
+      "How do I add new stock?",
+      "Show me farmer list",
+      "What's the quality grading process?",
+      "How to create a shipment?"
+    ],
+    MANAGER: [
+      "Show me pending buyer applications",
+      "What's today's revenue?",
+      "List low stock items",
+      "How many orders need approval?"
+    ],
+    ADMIN: [
+      "System health status",
+      "User activity summary",
+      "Show all pending tasks",
+      "Generate monthly report"
+    ],
+    SUPER_ADMIN: [
+      "System overview",
+      "User management help",
+      "Security best practices",
+      "Database backup status"
+    ]
+  };
+
+  const roleSuggestions = suggestions[role] || suggestions.BUYER;
+
+  return (
+    <div className="space-y-4">
+      <div className="text-center">
+        <MessageSquare className="mx-auto text-gray-400 mb-2" size={48} />
+        <h3 className="text-lg font-semibold text-gray-700">How can I help you?</h3>
+        <p className="text-sm text-gray-500 mt-1">Try asking me something...</p>
+      </div>
+      
+      <div className="space-y-2">
+        <p className="text-xs text-gray-600 font-semibold">Suggestions:</p>
+        {roleSuggestions.map((suggestion, idx) => (
+          <button
+            key={idx}
+            onClick={() => onSelect(suggestion)}
+            className="w-full text-left px-4 py-2 bg-white border border-gray-200 
+                       rounded-lg hover:bg-blue-50 hover:border-blue-300 transition-colors 
+                       text-sm text-gray-700"
+          >
+            {suggestion}
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+export default ChatSuggestions;
+```
+
+---
+
+### **5. Add to App.jsx**
 
 ```javascript
 import axios from 'axios';
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8080';
-const RAG_BASE_URL = import.meta.env.VITE_RAG_BASE_URL || 'http://localhost:8000';
 
 // Get token from localStorage
 const getToken = () => localStorage.getItem('token');
 
-// Send query to RAG backend
-export const sendChatQuery = async (query, role) => {
+/**
+ * Send chat query to Spring Boot backend
+ * 
+ * SECURITY: Always go through Spring Boot, never call Python RAG directly!
+ * Spring Boot extracts role from verified JWT and forwards to Python.
+ * This prevents role spoofing attacks where a buyer could claim to be admin.
+ */
+export const sendChatQuery = async (query) => {
   try {
     const response = await axios.post(
-      `${API_BASE_URL}/api/chat/query`,  // Spring Boot endpoint
-      { query },
+      `${API_BASE_URL}/api/chat/query`,
+      { query },  // Only send query, NOT role - Spring Boot gets role from JWT
       {
+        timeout: 40000, // 40 seconds - generous for Render cold start + RAG pipeline
         headers: {
           'Authorization': `Bearer ${getToken()}`,
           'Content-Type': 'application/json'
@@ -372,40 +601,43 @@ export const sendChatQuery = async (query, role) => {
     return response.data;
   } catch (error) {
     console.error('Chat query failed:', error);
+    
+    // Handle timeout (Render cold start)
+    if (error.code === 'ECONNABORTED' || error.message?.includes('timeout')) {
+      throw new Error('The assistant is waking up, please try again in a moment...');
+    }
+    
+    // Handle network errors
+    if (error.code === 'ERR_NETWORK') {
+      throw new Error('Cannot connect to server. Please check your connection.');
+    }
+    
     throw error;
   }
 };
 
-// Alternative: Call Python RAG service directly (if needed)
-export const sendDirectRAGQuery = async (query, role, buyerId, buyerStatus) => {
+/**
+ * Warm up both Spring Boot AND Python RAG service
+ * Render free tier spins down both services independently
+ * Call this on app load to reduce initial chat latency
+ */
+export const wakeUpBackend = async () => {
   try {
-    const response = await axios.post(
-      `${RAG_BASE_URL}/api/rag/query`,
-      { 
-        query, 
-        role,
-        buyer_id: buyerId,
-        buyer_status: buyerStatus
-      },
-      {
-        headers: {
-          'Authorization': `Bearer ${getToken()}`,
-          'Content-Type': 'application/json'
-        }
-      }
-    );
-    
-    return response.data;
+    // Wake up Spring Boot + Python in one call
+    await axios.get(`${API_BASE_URL}/api/chat/warmup`, { 
+      timeout: 5000,
+      // No auth needed for warmup endpoint
+    });
   } catch (error) {
-    console.error('Direct RAG query failed:', error);
-    throw error;
+    // Ignore errors - this is best-effort ping
+    console.log('Backend wake-up ping sent (may timeout, but still wakes services)');
   }
 };
 ```
 
 ---
 
-### **4. chatSlice.js (Redux State)**
+### **7. chatSlice.js (Redux State)**
 
 ```javascript
 import { createSlice, createAsyncThunk } from '@reduxjs/toolkit';
@@ -414,9 +646,10 @@ import { sendChatQuery } from '../api/chatService';
 // Async thunk for sending messages
 export const sendMessage = createAsyncThunk(
   'chat/sendMessage',
-  async ({ query, role }, { rejectWithValue }) => {
+  async ({ query }, { rejectWithValue }) => {
     try {
-      const response = await sendChatQuery(query, role);
+      // Only send query - Spring Boot extracts role from JWT
+      const response = await sendChatQuery(query);
       return response;
     } catch (error) {
       return rejectWithValue(error.response?.data || error.message);
@@ -430,6 +663,7 @@ const chatSlice = createSlice({
     messages: [],
     isOpen: false,
     isLoading: false,
+    isWakingUp: false,  // NEW: Track Render cold start
     error: null,
     userRole: null,
   },
@@ -447,6 +681,9 @@ const chatSlice = createSlice({
       state.messages = [];
       state.error = null;
     },
+    setWakingUp: (state, action) => {
+      state.isWakingUp = action.payload;
+    },
   },
   extraReducers: (builder) => {
     builder
@@ -462,6 +699,7 @@ const chatSlice = createSlice({
       })
       .addCase(sendMessage.fulfilled, (state, action) => {
         state.isLoading = false;
+        state.isWakingUp = false;
         // Add AI response
         state.messages.push({
           type: 'ai',
@@ -472,18 +710,29 @@ const chatSlice = createSlice({
       })
       .addCase(sendMessage.rejected, (state, action) => {
         state.isLoading = false;
-        state.error = action.payload;
-        // Add error message
-        state.messages.push({
-          type: 'error',
-          content: 'Sorry, I encountered an error. Please try again.',
-          timestamp: new Date().toISOString(),
-        });
+        const errorMsg = action.payload;
+        
+        // Check if it's a cold start timeout
+        if (errorMsg?.includes('waking up')) {
+          state.isWakingUp = true;
+          state.messages.push({
+            type: 'system',
+            content: '⏳ The AI assistant is waking up (Render free tier). This takes ~30 seconds. Please try again in a moment...',
+            timestamp: new Date().toISOString(),
+          });
+        } else {
+          state.error = errorMsg;
+          state.messages.push({
+            type: 'error',
+            content: 'Sorry, I encountered an error. Please try again.',
+            timestamp: new Date().toISOString(),
+          });
+        }
       });
   },
 });
 
-export const { openChat, closeChat, setUserRole, clearChat } = chatSlice.actions;
+export const { openChat, closeChat, setUserRole, clearChat, setWakingUp } = chatSlice.actions;
 export default chatSlice.reducer;
 ```
 
@@ -492,11 +741,37 @@ export default chatSlice.reducer;
 ### **5. Add to App.jsx**
 
 ```jsx
+import { useEffect } from 'react';
 import ChatWidget from './components/chat/ChatWidget';
-import { useSelector } from 'react-redux';
+import { useSelector, useDispatch } from 'react-redux';
+import { setUserRole, setWakingUp } from './store/chatSlice';
+import { wakeUpBackend } from './api/chatService';
 
 function App() {
-  const { isAuthenticated } = useSelector((state) => state.auth);
+  const dispatch = useDispatch();
+  const { isAuthenticated, user } = useSelector((state) => state.auth);
+
+  // Set user role for chat when user logs in
+  useEffect(() => {
+    if (isAuthenticated && user?.role) {
+      dispatch(setUserRole(user.role));
+    }
+  }, [isAuthenticated, user, dispatch]);
+
+  // FIXED: Wake up backend on app load with proper state updates
+  useEffect(() => {
+    const wakeUp = async () => {
+      dispatch(setWakingUp(true));  // Show banner immediately
+      try {
+        await wakeUpBackend();
+      } catch (error) {
+        // Ignore errors, this is best-effort
+      } finally {
+        dispatch(setWakingUp(false));  // Hide banner after ping
+      }
+    };
+    wakeUp();
+  }, [dispatch]);
 
   return (
     <div className="App">
@@ -513,7 +788,7 @@ export default App;
 
 ---
 
-### **6. Add chatSlice to Redux Store**
+### **8. Add chatSlice to Redux Store**
 
 ```javascript
 // In src/store/index.js or store.js
@@ -566,16 +841,28 @@ module.exports = {
 Update `.env.development` and `.env.production`:
 
 ```bash
-# Backend API
+# Backend API (Spring Boot)
 VITE_API_BASE_URL=http://localhost:8080
 
-# RAG Service (optional - if calling directly)
-VITE_RAG_BASE_URL=http://localhost:8000
-
-# For production
+# For production (Azure Static Web Apps)
+# Set this in Azure configuration, NOT in .env file!
 # VITE_API_BASE_URL=https://your-spring-boot.onrender.com
-# VITE_RAG_BASE_URL=https://your-rag-service.onrender.com
+
+# IMPORTANT: Do NOT add VITE_RAG_BASE_URL
+# Frontend should never call Python RAG service directly (security risk)
 ```
+
+**⚠️ CRITICAL SECURITY NOTE:**
+- Frontend only calls Spring Boot (`/api/chat/query`)
+- Spring Boot extracts role from JWT (server-verified)
+- Spring Boot forwards to Python with verified role
+- **NEVER** let frontend call Python directly with role in body (spoofing risk!)
+
+**⚠️ AZURE DEPLOYMENT NOTE:**
+- `.env.production` file is **NOT** used at runtime
+- Set `VITE_API_BASE_URL` in Azure Static Web Apps configuration
+- Or add to GitHub Actions workflow as repository secret
+- Vite bakes env vars into bundle at **build time**
 
 ---
 
@@ -623,11 +910,22 @@ VITE_RAG_BASE_URL=http://localhost:8000
    npm run build
    ```
 
-2. **Update environment variables** in Azure Static Web Apps:
-   - `VITE_API_BASE_URL` = Your Spring Boot URL
-   - `VITE_RAG_BASE_URL` = Your Python RAG service URL (if needed)
+2. **Set environment variable** in Azure Static Web Apps configuration:
+   - `VITE_API_BASE_URL` = Your Spring Boot URL (e.g., `https://your-backend.onrender.com`)
+   - ⚠️ **DO NOT** add any Python RAG service URL - frontend should never know it exists
 
-3. **Deploy to Azure Static Web Apps** (already configured)
+3. **Configure in GitHub Actions:**
+   Add to `.github/workflows/azure-static-web-apps.yml`:
+   ```yaml
+   env:
+     VITE_API_BASE_URL: ${{ secrets.VITE_API_BASE_URL }}
+   
+   steps:
+     - name: Build
+       run: npm run build
+   ```
+
+4. **Deploy to Azure Static Web Apps** (already configured in your repo)
 
 ---
 
