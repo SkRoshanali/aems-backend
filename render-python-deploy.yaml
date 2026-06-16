@@ -1,0 +1,45 @@
+services:
+  # Python FastAPI RAG Service
+  - type: web
+    name: aems-rag-service
+    env: python
+    region: oregon
+    plan: free  # Change to 'starter' or higher for production
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn app.main:app --host 0.0.0.0 --port $PORT
+    envVars:
+      - key: DATABASE_URL
+        value: postgresql://neondb_owner:npg_5XRN7FWdOpvo@ep-shy-resonance-a9t6ax21-pooler.gwc.azure.neon.tech/neondb?sslmode=require
+      
+      - key: OPENAI_API_KEY
+        sync: false  # Add this manually in Render dashboard (secure)
+      
+      - key: OPENAI_EMBEDDING_MODEL
+        value: text-embedding-3-small
+      
+      - key: OPENAI_CHAT_MODEL
+        value: gpt-4-turbo-preview
+      
+      - key: JWT_SECRET
+        value: 3f8a2b1c9d4e7f6a5b3c2d1e0f9a8b7c6d5e4f3a2b1c0d9e8f7a6b5c4d3e2f1
+      
+      - key: JWT_ALGORITHM
+        value: HS256
+      
+      - key: CHUNK_SIZE
+        value: 500
+      
+      - key: CHUNK_OVERLAP
+        value: 50
+      
+      - key: SEARCH_TOP_K
+        value: 5
+      
+      - key: HOST
+        value: 0.0.0.0
+      
+      - key: PORT
+        value: 10000  # Render assigns this automatically
+      
+      - key: LOG_LEVEL
+        value: INFO
