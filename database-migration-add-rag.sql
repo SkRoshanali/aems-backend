@@ -7,6 +7,30 @@
 CREATE EXTENSION IF NOT EXISTS vector;
 
 -- ============================================================
+-- TABLE: document_chunks
+-- Direct Gemini + pgvector RAG storage
+-- ============================================================
+CREATE TABLE IF NOT EXISTS document_chunks (
+    id BIGSERIAL PRIMARY KEY,
+    content TEXT NOT NULL,
+    embedding vector(768) NOT NULL,
+    visibility TEXT NOT NULL DEFAULT 'public',
+    buyer_id TEXT,
+    event_type TEXT,
+    metadata JSONB NOT NULL DEFAULT '{}'::jsonb,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS document_chunks_embedding_hnsw_idx
+ON document_chunks USING hnsw (embedding vector_cosine_ops);
+
+CREATE INDEX IF NOT EXISTS document_chunks_visibility_idx
+ON document_chunks (visibility);
+
+CREATE INDEX IF NOT EXISTS document_chunks_metadata_gin_idx
+ON document_chunks USING GIN(metadata);
+
+-- ============================================================
 -- TABLE: langchain_pg_collection
 -- Stores collection metadata for LangChain
 -- ============================================================

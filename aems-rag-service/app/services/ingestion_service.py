@@ -1,180 +1,188 @@
 """
-Document Ingestion Service
-Handles embedding generation and storage for business events
+Document ingestion using Gemini embeddings and pgvector.
 """
-from typing import List, Dict, Optional
-from langchain_google_genai import GoogleGenerativeAIEmbeddings
-from langchain.text_splitter import RecursiveCharacterTextSplitter
-from langchain_community.vectorstores import PGVector
-from sqlalchemy import create_engine, text
+from typing import Dict, List
+
+import logging
+import psycopg2
+from psycopg2.extras import Json
+from google import genai
+from google.genai import types
+
 from ..config import settings
 from ..database import get_connection_string
-import logging
 
 logger = logging.getLogger(__name__)
 
+client = genai.Client(api_key=settings.GOOGLE_API_KEY)
+
+
+def vector_literal(values: List[float]) -> str:
+    return "[" + ",".join(str(value) for value in values) + "]"
+
+
+def embed_text(text: str) -> List[float]:
+    result = client.models.embed_content(
+        model=settings.GOOGLE_EMBEDDING_MODEL,
+        contents=text,
+        config=types.EmbedContentConfig(output_dimensionality=768),
+    )
+    return list(result.embeddings[0].values)
+
+
+def chunk_text(content: str, chunk_size: int, overlap: int) -> List[str]:
+    text = content.strip()
+    if not text:
+        return []
+    if len(text) <= chunk_size:
+        return [text]
+
+    chunks: List[str] = []
+    start = 0
+    step = max(chunk_size - overlap, 1)
+    while start < len(text):
+        chunks.append(text[start:start + chunk_size])
+        start += step
+    return chunks
+
 
 class IngestionService:
-    
     def __init__(self):
-        self.embeddings = GoogleGenerativeAIEmbeddings(
-            model=settings.GOOGLE_EMBEDDING_MODEL,
-            google_api_key=settings.GOOGLE_API_KEY
-        )
-        
-        self.text_splitter = RecursiveCharacterTextSplitter(
-            chunk_size=settings.CHUNK_SIZE,
-            chunk_overlap=settings.CHUNK_OVERLAP,
-            separators=["\n\n", "\n", ". ", ", ", " ", ""]
-        )
-        
-        self.vector_store = PGVector(
-            connection_string=get_connection_string(),
-            embedding_function=self.embeddings,
-            collection_name="document_chunks"
-        )
-    
-    def ingest_document(
-        self, 
-        content: str, 
-        metadata: Dict[str, str]
-    ) -> Dict:
-        """
-        Ingest a single document (business event) into vector database
-        
-        Args:
-            content: Text content to embed
-            metadata: Tags for filtering (visibility, buyer_id, event_type, etc.)
-        
-        Returns:
-            Status dict with document_id and chunks_created
-        """
+        self.ensure_schema()
+
+    def connect(self):
+        return psycopg2.connect(get_connection_string())
+
+    def ensure_schema(self) -> None:
+        with self.connect() as conn:
+            with conn.cursor() as cur:
+                cur.execute("CREATE EXTENSION IF NOT EXISTS vector")
+                cur.execute(
+                    """
+                    CREATE TABLE IF NOT EXISTS document_chunks (
+                        id BIGSERIAL PRIMARY KEY,
+                        content TEXT NOT NULL,
+                        embedding vector(768) NOT NULL,
+                        visibility TEXT NOT NULL DEFAULT 'public',
+                        buyer_id TEXT,
+                        event_type TEXT,
+                        metadata JSONB NOT NULL DEFAULT '{}'::jsonb,
+                        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+                    )
+                    """
+                )
+                cur.execute(
+                    """
+                    CREATE INDEX IF NOT EXISTS document_chunks_embedding_hnsw_idx
+                    ON document_chunks USING hnsw (embedding vector_cosine_ops)
+                    """
+                )
+                cur.execute(
+                    """
+                    CREATE INDEX IF NOT EXISTS document_chunks_visibility_idx
+                    ON document_chunks (visibility)
+                    """
+                )
+                cur.execute(
+                    """
+                    CREATE INDEX IF NOT EXISTS document_chunks_metadata_gin_idx
+                    ON document_chunks USING GIN (metadata)
+                    """
+                )
+            conn.commit()
+
+    def ingest_document(self, content: str, metadata: Dict[str, str]) -> Dict:
         try:
-            # Split content into chunks if needed
-            chunks = self.text_splitter.split_text(content)
-            
-            # Add metadata to each chunk
-            metadatas = [metadata.copy() for _ in chunks]
-            
-            # Add chunks to vector store
-            ids = self.vector_store.add_texts(
-                texts=chunks,
-                metadatas=metadatas
-            )
-            
-            logger.info(
-                f"Ingested document: {metadata.get('event_type', 'unknown')} "
-                f"with {len(chunks)} chunks"
-            )
-            
-            return {
-                "status": "success",
-                "chunks_created": len(chunks),
-                "document_ids": ids
-            }
-            
-        except Exception as e:
-            logger.error(f"Failed to ingest document: {str(e)}")
-            return {
-                "status": "error",
-                "message": str(e)
-            }
-    
-    def ingest_batch(
-        self,
-        documents: List[Dict]
-    ) -> Dict:
-        """
-        Batch ingest multiple documents
-        
-        Args:
-            documents: List of dicts with 'content' and 'metadata' keys
-        
-        Returns:
-            Status dict with total_ingested count
-        """
-        try:
-            all_texts = []
-            all_metadatas = []
-            
-            for doc in documents:
-                content = doc.get("content", "")
-                metadata = doc.get("metadata", {})
-                
-                chunks = self.text_splitter.split_text(content)
-                all_texts.extend(chunks)
-                all_metadatas.extend([metadata.copy() for _ in chunks])
-            
-            ids = self.vector_store.add_texts(
-                texts=all_texts,
-                metadatas=all_metadatas
-            )
-            
-            logger.info(f"Batch ingested {len(documents)} documents ({len(ids)} chunks)")
-            
-            return {
-                "status": "success",
-                "documents_ingested": len(documents),
-                "total_chunks": len(ids)
-            }
-            
-        except Exception as e:
-            logger.error(f"Failed to batch ingest: {str(e)}")
-            return {
-                "status": "error",
-                "message": str(e)
-            }
-    
-    def delete_by_metadata(
-        self,
-        metadata_filter: Dict[str, str]
-    ) -> Dict:
-        """
-        Delete documents matching metadata filter
-        Useful when buyer is deleted or order is cancelled
-        
-        Args:
-            metadata_filter: Dict of metadata key-value pairs to match
-        
-        Returns:
-            Status dict with deleted_count
-        """
-        try:
-            # Note: PGVector delete by filter might need custom SQL
-            # This is a simplified version
-            engine = create_engine(get_connection_string())
-            
-            # Build WHERE clause from metadata filter
-            conditions = []
-            for key, value in metadata_filter.items():
-                conditions.append(f"metadata->'{key}' = '{value}'")
-            
-            where_clause = " AND ".join(conditions)
-            
-            delete_query = text(f"""
-                DELETE FROM langchain_pg_embedding
-                WHERE {where_clause}
-            """)
-            
-            with engine.connect() as conn:
-                result = conn.execute(delete_query)
+            chunks = chunk_text(content, settings.CHUNK_SIZE, settings.CHUNK_OVERLAP)
+            if not chunks:
+                return {
+                    "status": "error",
+                    "message": "Content cannot be empty",
+                }
+
+            document_ids: List[int] = []
+            with self.connect() as conn:
+                with conn.cursor() as cur:
+                    for chunk in chunks:
+                        embedding = embed_text(chunk)
+                        cur.execute(
+                            """
+                            INSERT INTO document_chunks
+                                (content, embedding, visibility, buyer_id, event_type, metadata)
+                            VALUES
+                                (%s, %s::vector, %s, %s, %s, %s)
+                            RETURNING id
+                            """,
+                            (
+                                chunk,
+                                vector_literal(embedding),
+                                metadata.get("visibility", "public"),
+                                metadata.get("buyer_id"),
+                                metadata.get("event_type"),
+                                Json(metadata),
+                            ),
+                        )
+                        document_ids.append(cur.fetchone()[0])
                 conn.commit()
-                deleted_count = result.rowcount
-            
-            logger.info(f"Deleted {deleted_count} documents matching {metadata_filter}")
-            
+
+            logger.info(
+                "Ingested %s chunk(s) for event %s",
+                len(document_ids),
+                metadata.get("event_type", "unknown"),
+            )
             return {
                 "status": "success",
-                "deleted_count": deleted_count
+                "chunks_created": len(document_ids),
+                "document_ids": [str(document_id) for document_id in document_ids],
             }
-            
-        except Exception as e:
-            logger.error(f"Failed to delete documents: {str(e)}")
+        except Exception as exc:
+            logger.error("Failed to ingest document: %s", exc)
             return {
                 "status": "error",
-                "message": str(e)
+                "message": str(exc),
+            }
+
+    def ingest_batch(self, documents: List[Dict]) -> Dict:
+        total_chunks = 0
+        for document in documents:
+            result = self.ingest_document(
+                document.get("content", ""),
+                document.get("metadata", {}),
+            )
+            if result["status"] == "error":
+                return result
+            total_chunks += result.get("chunks_created", 0)
+
+        return {
+            "status": "success",
+            "documents_ingested": len(documents),
+            "total_chunks": total_chunks,
+        }
+
+    def delete_by_metadata(self, metadata_filter: Dict[str, str]) -> Dict:
+        try:
+            with self.connect() as conn:
+                with conn.cursor() as cur:
+                    cur.execute(
+                        """
+                        DELETE FROM document_chunks
+                        WHERE metadata @> %s::jsonb
+                        """,
+                        (Json(metadata_filter),),
+                    )
+                    deleted_count = cur.rowcount
+                conn.commit()
+
+            return {
+                "status": "success",
+                "deleted_count": deleted_count,
+            }
+        except Exception as exc:
+            logger.error("Failed to delete documents: %s", exc)
+            return {
+                "status": "error",
+                "message": str(exc),
             }
 
 
-# Singleton instance
 ingestion_service = IngestionService()

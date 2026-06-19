@@ -1,6 +1,27 @@
 -- Enable pgvector extension
 CREATE EXTENSION IF NOT EXISTS vector;
 
+-- Direct RAG table used by the Gemini/Vercel implementation
+CREATE TABLE IF NOT EXISTS document_chunks (
+    id BIGSERIAL PRIMARY KEY,
+    content TEXT NOT NULL,
+    embedding vector(768) NOT NULL,
+    visibility TEXT NOT NULL DEFAULT 'public',
+    buyer_id TEXT,
+    event_type TEXT,
+    metadata JSONB NOT NULL DEFAULT '{}'::jsonb,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS document_chunks_embedding_hnsw_idx
+ON document_chunks USING hnsw (embedding vector_cosine_ops);
+
+CREATE INDEX IF NOT EXISTS document_chunks_visibility_idx
+ON document_chunks (visibility);
+
+CREATE INDEX IF NOT EXISTS document_chunks_metadata_gin_idx
+ON document_chunks USING GIN(metadata);
+
 -- LangChain creates its own tables, but we can pre-create for control
 -- This table will store document chunks with embeddings
 CREATE TABLE IF NOT EXISTS langchain_pg_embedding (

@@ -32,11 +32,10 @@ services:
       - "8000:8000"
     environment:
       DATABASE_URL: postgresql://aems_user:aems_pass@postgres:5432/aems_db
-      OPENAI_API_KEY: ${OPENAI_API_KEY}
-      OPENAI_EMBEDDING_MODEL: text-embedding-3-small
-      OPENAI_CHAT_MODEL: gpt-4-turbo-preview
-      JWT_SECRET: ${JWT_SECRET}
-      JWT_ALGORITHM: HS256
+      INTERNAL_SECRET: ${RAG_INTERNAL_SECRET}
+      GOOGLE_API_KEY: ${GOOGLE_API_KEY}
+      GOOGLE_EMBEDDING_MODEL: gemini-embedding-001
+      GOOGLE_CHAT_MODEL: gemini-2.5-flash
       CHUNK_SIZE: 500
       CHUNK_OVERLAP: 50
       SEARCH_TOP_K: 5
@@ -68,6 +67,7 @@ services:
       JWT_SECRET: ${JWT_SECRET}
       ENCRYPTION_KEY: ${ENCRYPTION_KEY}
       RAG_SERVICE_URL: http://rag-service:8000
+      RAG_INTERNAL_SECRET: ${RAG_INTERNAL_SECRET}
       MAIL_USERNAME: ${MAIL_USERNAME}
       MAIL_PASSWORD: ${MAIL_PASSWORD}
       ALLOWED_ORIGINS: ${ALLOWED_ORIGINS:-*}

@@ -2,10 +2,10 @@
 RAG Query Router
 Endpoints for role-based question answering
 """
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Header, HTTPException, status
 from pydantic import BaseModel, Field
-from typing import List, Dict, Optional
-from ..auth import verify_jwt_token
+from typing import List, Optional
+from ..auth import verify_internal
 from ..services.rag_service import rag_service
 import logging
 
@@ -31,40 +31,28 @@ class QueryRequest(BaseModel):
         }
 
 
-class SourceDocument(BaseModel):
-    content: str
-    metadata: Dict
-
-
 class QueryResponse(BaseModel):
     answer: str
-    sources: List[SourceDocument]
-    role: str
-    filter_applied: bool
+    sources: List[str]
 
 
 @router.post("/query", response_model=QueryResponse)
 async def query_rag(
     request: QueryRequest,
-    auth: dict = Depends(verify_jwt_token)
+    x_internal_secret: str | None = Header(None)
 ):
     """
     Execute RAG query with role-based document filtering
     
     Flow:
-    1. Validate JWT and extract role
+    1. Verify internal service secret
     2. Build metadata filter based on role
     3. Search vector database for relevant documents
     4. Generate answer using LLM with filtered context
     5. Return answer with source documents
     """
     try:
-        # Validate role matches JWT
-        if auth["role"] != request.role:
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail="Role in request does not match authenticated user role"
-            )
+        verify_internal(x_internal_secret)
         
         # Execute RAG query
         result = rag_service.query(
@@ -74,16 +62,9 @@ async def query_rag(
             buyer_status=request.buyer_status
         )
         
-        # Check for errors
-        if "error" in result:
-            logger.error(f"RAG query error: {result['error']}")
-            # Still return the fallback answer
-        
         return QueryResponse(
             answer=result["answer"],
-            sources=[SourceDocument(**src) for src in result["sources"]],
-            role=result.get("role", request.role),
-            filter_applied=result.get("filter_applied", False)
+            sources=result["sources"],
         )
     
     except HTTPException:

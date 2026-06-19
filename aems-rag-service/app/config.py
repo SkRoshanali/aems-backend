@@ -14,14 +14,13 @@ class Settings(BaseSettings):
     # Database Configuration
     DATABASE_URL: str
     
+    # Internal service authentication
+    INTERNAL_SECRET: str
+
     # Google Generative AI Configuration
     GOOGLE_API_KEY: str
-    GOOGLE_EMBEDDING_MODEL: str = "models/embedding-001"
-    GOOGLE_CHAT_MODEL: str = "gemini-pro"
-    
-    # JWT Configuration (must match Spring Boot)
-    JWT_SECRET: str
-    JWT_ALGORITHM: str = "HS256"
+    GOOGLE_EMBEDDING_MODEL: str = "gemini-embedding-001"
+    GOOGLE_CHAT_MODEL: str = "gemini-2.5-flash"
     
     # RAG Configuration
     CHUNK_SIZE: int = 500

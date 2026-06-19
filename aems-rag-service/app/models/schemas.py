@@ -20,13 +20,6 @@ class QueryRequest(BaseModel):
     buyer_status: Optional[str] = Field(None, description="PENDING or ACCEPTED")
 
 
-class SourceDocument(BaseModel):
-    content: str
-    metadata: Dict
-
-
 class QueryResponse(BaseModel):
     answer: str
-    sources: List[SourceDocument]
-    role: str
-    filter_applied: bool
+    sources: List[str]

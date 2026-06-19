@@ -2,10 +2,11 @@
 Document Ingestion Router
 Endpoints for Spring Boot to push business events
 """
-from fastapi import APIRouter, HTTPException, status
+from fastapi import APIRouter, Header, HTTPException, status
 from pydantic import BaseModel, Field
 from typing import List, Dict, Optional
 from ..services.ingestion_service import ingestion_service
+from ..auth import verify_internal
 import logging
 
 logger = logging.getLogger(__name__)
@@ -69,7 +70,10 @@ class DeleteRequest(BaseModel):
 
 
 @router.post("/document", response_model=IngestionResponse)
-async def ingest_document(request: DocumentRequest):
+async def ingest_document(
+    request: DocumentRequest,
+    x_internal_secret: str | None = Header(None),
+):
     """
     Ingest a single business event document into the RAG vector database
     
@@ -81,6 +85,7 @@ async def ingest_document(request: DocumentRequest):
     - Admin updates order status
     """
     try:
+        verify_internal(x_internal_secret)
         result = ingestion_service.ingest_document(
             content=request.content,
             metadata=request.metadata
@@ -105,7 +110,10 @@ async def ingest_document(request: DocumentRequest):
 
 
 @router.post("/batch", response_model=BatchIngestionResponse)
-async def ingest_batch(request: BatchDocumentRequest):
+async def ingest_batch(
+    request: BatchDocumentRequest,
+    x_internal_secret: str | None = Header(None),
+):
     """
     Batch ingest multiple documents
     
@@ -115,6 +123,7 @@ async def ingest_batch(request: BatchDocumentRequest):
     - Periodic sync jobs
     """
     try:
+        verify_internal(x_internal_secret)
         documents = [
             {"content": doc.content, "metadata": doc.metadata}
             for doc in request.documents
@@ -141,7 +150,10 @@ async def ingest_batch(request: BatchDocumentRequest):
 
 
 @router.delete("/delete")
-async def delete_documents(request: DeleteRequest):
+async def delete_documents(
+    request: DeleteRequest,
+    x_internal_secret: str | None = Header(None),
+):
     """
     Delete documents matching metadata filter
     
@@ -151,6 +163,7 @@ async def delete_documents(request: DeleteRequest):
     - Data cleanup
     """
     try:
+        verify_internal(x_internal_secret)
         result = ingestion_service.delete_by_metadata(
             metadata_filter=request.metadata
         )
@@ -183,5 +196,5 @@ async def ingestion_health():
     return {
         "status": "healthy",
         "service": "ingestion",
-        "embedding_model": "OpenAI text-embedding-3-small"
+        "embedding_model": "gemini-embedding-001"
     }
