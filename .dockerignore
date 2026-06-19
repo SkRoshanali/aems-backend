@@ -1,0 +1,41 @@
+# Git
+.git
+.gitignore
+.gitattributes
+
+# IDE
+.idea
+.vscode
+*.swp
+*.swo
+*~
+
+# Build artifacts
+target
+node_modules
+dist
+build
+
+# Documentation
+*.md
+docs
+README*
+
+# Configuration
+.env
+.env.local
+.env.production.local
+
+# Development
+docker-compose.yml
+Makefile
+start-dev.*
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Testing
+.pytest_cache
+coverage
+test-results
