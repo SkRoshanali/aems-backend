@@ -3,14 +3,12 @@ FROM maven:3.9-eclipse-temurin-21-alpine AS build
 
 WORKDIR /app
 
-# Copy the entire backend project
-COPY aems-backend/pom.xml .
-COPY aems-backend/src ./src
+# Copy Maven files
+COPY pom.xml .
+COPY src ./src
 
-# Download dependencies
+# Download dependencies and build
 RUN mvn dependency:resolve
-
-# Build the application
 RUN mvn clean package -DskipTests
 
 # Runtime stage
@@ -18,13 +16,13 @@ FROM eclipse-temurin:21-jre-alpine
 
 WORKDIR /app
 
-# Copy the built jar from build stage
+# Copy the built jar
 COPY --from=build /app/target/*.jar app.jar
 
-# Render requires listening on $PORT (default 8080)
+# Expose port
 EXPOSE 8080
 
-# Optimized JVM flags for containers
+# Run the application
 ENTRYPOINT ["java", \
   "-XX:+UseContainerSupport", \
   "-XX:MaxRAMPercentage=75.0", \

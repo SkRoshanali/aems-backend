@@ -1,3 +1,6 @@
+# Exclude old nested directory
+aems-backend/
+
 # Git
 .git
 .gitignore
