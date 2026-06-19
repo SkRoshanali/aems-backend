@@ -3,12 +3,13 @@ FROM maven:3.9-eclipse-temurin-21-alpine AS build
 
 WORKDIR /app
 
-# Copy pom.xml from aems-backend subdirectory
-COPY aems-backend/pom.xml .
+# Copy entire aems-backend directory (handles all files including pom.xml, src, etc.)
+COPY aems-backend . 
+
+# Download dependencies (for layer caching)
 RUN mvn dependency:go-offline -B
 
-# Copy source code and build
-COPY aems-backend/src ./src
+# Build the application
 RUN mvn clean package -DskipTests -B
 
 # Runtime stage
